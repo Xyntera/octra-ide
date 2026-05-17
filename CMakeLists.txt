@@ -78,43 +78,39 @@ if(WIN32)
 endif()
 
 if(OCTRA_BUILD_QT_APP)
-    find_package(Qt6 COMPONENTS Core Gui Qml Quick QuickControls2 QUIET)
-    if(Qt6_FOUND)
-        qt_add_executable(octra_wallet_native
-            native/qt_main.cpp
-            native/qt_app_bridge.cpp
-        )
-        set_target_properties(octra_wallet_native PROPERTIES WIN32_EXECUTABLE TRUE)
+    find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+    qt_add_executable(octra_wallet_native
+        native/qt_main.cpp
+        native/qt_app_bridge.cpp
+    )
+    set_target_properties(octra_wallet_native PROPERTIES WIN32_EXECUTABLE TRUE)
 
-        qt_add_qml_module(octra_wallet_native
-            URI OctraWallet
-            VERSION 1.0
-            QML_FILES
-                native/qml/Main.qml
-        )
+    qt_add_qml_module(octra_wallet_native
+        URI OctraWallet
+        VERSION 1.0
+        QML_FILES
+            native/qml/Main.qml
+    )
 
-        qt_add_resources(octra_wallet_native "octra_wallet_templates"
-            PREFIX "/octra_templates"
-            FILES
-                static/templates/index.json
-                static/templates/empty/main.aml
-                static/templates/token/main.aml
-                static/templates/token/interfaces/IOCS01.aml
-                static/templates/vault/main.aml
-                static/templates/amm/main.aml
-                static/templates/escrow/main.aml
-                static/templates/multisig/main.aml
-        )
+    qt_add_resources(octra_wallet_native "octra_wallet_templates"
+        PREFIX "/octra_templates"
+        FILES
+            static/templates/index.json
+            static/templates/empty/main.aml
+            static/templates/token/main.aml
+            static/templates/token/interfaces/IOCS01.aml
+            static/templates/vault/main.aml
+            static/templates/amm/main.aml
+            static/templates/escrow/main.aml
+            static/templates/multisig/main.aml
+    )
 
-        target_link_libraries(octra_wallet_native PRIVATE
-            Qt6::Core
-            Qt6::Gui
-            Qt6::Qml
-            Qt6::Quick
-            Qt6::QuickControls2
-            octra_core
-        )
-    else()
-        message(WARNING "Qt6 not found. Building octra_core only.")
-    endif()
+    target_link_libraries(octra_wallet_native PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
+        octra_core
+    )
 endif()
