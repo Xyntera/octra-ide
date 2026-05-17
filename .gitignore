@@ -1,0 +1,14 @@
+octra_wallet
+octra_wallet.exe
+*.o
+*.dll
+data/
+*.oct
+pvac/build/
+.DS_Store
+build-native/
+build-win64/
+dist-win64/
+*.zip
+*.exe
+!setup.bat

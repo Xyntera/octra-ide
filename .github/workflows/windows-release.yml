@@ -1,0 +1,109 @@
+name: windows-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.2.4
+          arch: win64_msvc2019_64
+          cache: true
+          modules: qtquickdialogs2
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build-win-msvc `
+            -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DQt6_DIR="$env:Qt6_DIR" `
+            -DOCTRA_BUILD_QT_APP=ON
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build-win-msvc -j 2
+
+      - name: Assemble portable bundle
+        shell: pwsh
+        run: |
+          $qtPrefix = Resolve-Path (Join-Path $env:Qt6_DIR "..\..")
+          $bundle = Join-Path $pwd "dist-win64"
+          if (Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
+          New-Item -ItemType Directory -Path $bundle | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $bundle "platforms") | Out-Null
+          Copy-Item build-win-msvc\octra_wallet_native.exe $bundle
+          Copy-Item (Join-Path $qtPrefix "bin\*.dll") $bundle
+          Copy-Item (Join-Path $qtPrefix "plugins\platforms\qwindows.dll") (Join-Path $bundle "platforms")
+          Copy-Item (Join-Path $qtPrefix "qml") $bundle -Recurse
+          Copy-Item (Join-Path $qtPrefix "plugins") $bundle -Recurse
+          Copy-Item (Join-Path $qtPrefix "translations") $bundle -Recurse
+          @"
+          [Paths]
+          Prefix=.
+          Plugins=plugins
+          QmlImports=qml
+          Translations=translations
+          "@ | Set-Content (Join-Path $bundle "qt.conf") -Encoding ASCII
+          Copy-Item COPYING (Join-Path $bundle "COPYING")
+          @"
+          Octra Wallet Native for Windows
+
+          Install with octra_wallet_native_win64_setup.exe or extract the zip.
+          The app runs from octra_wallet_native.exe inside the installed/extracted folder.
+          Mainnet and Devnet presets are available in Settings.
+          "@ | Set-Content (Join-Path $bundle "README.txt") -Encoding ASCII
+
+      - name: Package zip
+        shell: pwsh
+        run: Compress-Archive -Path dist-win64\* -DestinationPath octra_wallet_native_win64.zip
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $nsis = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
+          if (-not $nsis) {
+            choco install nsis -y
+            $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          }
+          & $nsis packaging\windows\installer.nsi
+
+      - name: Sign artifacts
+        if: ${{ secrets.WIN_SIGN_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $pfxPath = "$env:TEMP\octra-sign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String("${{ secrets.WIN_SIGN_PFX_BASE64 }}"))
+          $pwd = ConvertTo-SecureString "${{ secrets.WIN_SIGN_PFX_PASSWORD }}" -AsPlainText -Force
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+          $cert.Import($pfxPath, $pwd, "Exportable,PersistKeySet")
+          $thumb = $cert.Thumbprint
+          $certPath = "Cert:\CurrentUser\My\$thumb"
+          Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $pwd | Out-Null
+          $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signtool) { throw "signtool.exe not found. Install Windows SDK." }
+          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /sha1 $thumb build-win-msvc\octra_wallet_native.exe
+          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /sha1 $thumb octra_wallet_native_win64_setup.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            build-win-msvc/octra_wallet_native.exe
+            octra_wallet_native_win64.zip
+            octra_wallet_native_win64_setup.exe
