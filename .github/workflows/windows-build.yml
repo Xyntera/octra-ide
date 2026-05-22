@@ -39,7 +39,7 @@ jobs:
       - name: Assemble portable bundle
         shell: pwsh
         run: |
-          $qtPrefix = Resolve-Path (Join-Path $env:Qt6_DIR "..\..")
+          $qtPrefix = $env:QT_ROOT_DIR
           $bundle = Join-Path $pwd "dist-win64"
           if (Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
           New-Item -ItemType Directory -Path $bundle | Out-Null
