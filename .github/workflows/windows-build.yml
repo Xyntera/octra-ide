@@ -37,6 +37,8 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
+          $env:CC = "clang-cl"
+          $env:CXX = "clang-cl"
           cmake -S . -B build-win-msvc `
             -G "Ninja" `
             -DCMAKE_BUILD_TYPE=Release `
