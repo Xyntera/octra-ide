@@ -12,6 +12,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-2022
+    env:
+      WIN_SIGN_PFX_BASE64: ${{ secrets.WIN_SIGN_PFX_BASE64 }}
+      WIN_SIGN_PFX_PASSWORD: ${{ secrets.WIN_SIGN_PFX_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -85,12 +88,12 @@ jobs:
           & $nsis packaging\windows\installer.nsi
 
       - name: Sign artifacts
-        if: ${{ secrets.WIN_SIGN_PFX_BASE64 != '' }}
+        if: ${{ env.WIN_SIGN_PFX_BASE64 != '' }}
         shell: pwsh
         run: |
           $pfxPath = "$env:TEMP\octra-sign.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String("${{ secrets.WIN_SIGN_PFX_BASE64 }}"))
-          $pwd = ConvertTo-SecureString "${{ secrets.WIN_SIGN_PFX_PASSWORD }}" -AsPlainText -Force
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WIN_SIGN_PFX_BASE64))
+          $pwd = ConvertTo-SecureString $env:WIN_SIGN_PFX_PASSWORD -AsPlainText -Force
           $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
           $cert.Import($pfxPath, $pwd, "Exportable,PersistKeySet")
           $thumb = $cert.Thumbprint
