@@ -40,8 +40,11 @@ jobs:
         shell: bash
         run: |
           APP_BUNDLE="build-macos/octra_wallet_native.app"
-          QT_ROOT="$(cd "$(dirname "$Qt6_DIR")/../../.." && pwd)"
-          "$QT_ROOT/bin/macdeployqt" "$APP_BUNDLE" -always-overwrite
+          MACDEPLOYQT="$QT_ROOT_DIR/bin/macdeployqt"
+          if [ ! -x "$MACDEPLOYQT" ]; then
+            MACDEPLOYQT="$(command -v macdeployqt)"
+          fi
+          "$MACDEPLOYQT" "$APP_BUNDLE" -always-overwrite
           cp README.md "$APP_BUNDLE/Contents/Resources/README.md"
           cp COPYING "$APP_BUNDLE/Contents/Resources/COPYING"
           ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" octra_ide_macos.zip
