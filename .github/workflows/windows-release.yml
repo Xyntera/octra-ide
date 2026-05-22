@@ -49,11 +49,14 @@ jobs:
         shell: pwsh
         run: |
           $qtPrefix = $env:QT_ROOT_DIR
+          $opensslBin = "C:\Program Files\OpenSSL\bin"
           $bundle = Join-Path $pwd "dist-win64"
           if (Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
           New-Item -ItemType Directory -Path $bundle | Out-Null
           New-Item -ItemType Directory -Path (Join-Path $bundle "platforms") | Out-Null
           Copy-Item build-win-msvc\octra_wallet_native.exe $bundle
+          Copy-Item (Join-Path $opensslBin "libcrypto-3-x64.dll") $bundle
+          Copy-Item (Join-Path $opensslBin "libssl-3-x64.dll") $bundle
           Copy-Item (Join-Path $qtPrefix "bin\*.dll") $bundle
           Copy-Item (Join-Path $qtPrefix "plugins\platforms\qwindows.dll") (Join-Path $bundle "platforms")
           Copy-Item (Join-Path $qtPrefix "qml") $bundle -Recurse
