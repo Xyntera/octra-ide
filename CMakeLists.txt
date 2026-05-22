@@ -41,6 +41,17 @@ target_include_directories(octra_pvac PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/pvac
     ${CMAKE_CURRENT_SOURCE_DIR}/pvac/include
 )
+if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" --print-resource-dir
+        OUTPUT_VARIABLE OCTRA_CLANG_RESOURCE_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    set(OCTRA_CLANG_BUILTINS_LIB "${OCTRA_CLANG_RESOURCE_DIR}/lib/windows/clang_rt.builtins-x86_64.lib")
+    if(EXISTS "${OCTRA_CLANG_BUILTINS_LIB}")
+        target_link_libraries(octra_pvac PUBLIC "${OCTRA_CLANG_BUILTINS_LIB}")
+    endif()
+endif()
 
 add_library(octra_crypto STATIC
     lib/tweetnacl.c
