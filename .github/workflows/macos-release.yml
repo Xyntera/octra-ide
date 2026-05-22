@@ -23,7 +23,6 @@ jobs:
           version: 6.2.4
           arch: clang_64
           cache: true
-          modules: qtquickdialogs2
 
       - name: Configure
         shell: bash
