@@ -11,6 +11,7 @@ class OctraAppBridge final : public QObject {
     Q_PROPERTY(bool loaded READ loaded NOTIFY stateChanged)
     Q_PROPERTY(QString address READ address NOTIFY stateChanged)
     Q_PROPERTY(QString rpcUrl READ rpcUrl NOTIFY stateChanged)
+    Q_PROPERTY(QString explorerUrl READ explorerUrl NOTIFY stateChanged)
     Q_PROPERTY(QString networkName READ networkName NOTIFY stateChanged)
 
 public:
@@ -19,9 +20,11 @@ public:
     bool loaded() const;
     QString address() const;
     QString rpcUrl() const;
+    QString explorerUrl() const;
     QString networkName() const;
 
     Q_INVOKABLE QVariantMap walletStatus();
+    Q_INVOKABLE QVariantMap getHistory(int limit = 20, int offset = 0);
     Q_INVOKABLE QVariantMap unlockWallet(const QString& pin, const QString& path = QString());
     Q_INVOKABLE QVariantMap createWallet(const QString& pin);
     Q_INVOKABLE QVariantMap importPrivateKey(const QString& privateKeyB64, const QString& pin);
@@ -41,6 +44,7 @@ public:
     Q_INVOKABLE QVariantMap compileAssembly(const QString& source);
     Q_INVOKABLE QVariantMap compileAml(const QString& source);
     Q_INVOKABLE QVariantMap compileProject(const QString& filesJson, const QString& mainPath);
+    Q_INVOKABLE QVariantMap deployTemplate(const QString& templateKey, const QString& paramsJson, const QString& fee);
     Q_INVOKABLE QVariantMap previewContractAddress(const QString& bytecode);
     Q_INVOKABLE QVariantMap deployContract(const QString& bytecode, const QString& paramsJson, const QString& fee);
     Q_INVOKABLE QVariantMap callContract(const QString& address, const QString& method, const QString& paramsJson, const QString& amountRaw, const QString& fee);
@@ -66,5 +70,6 @@ private:
     bool loaded_ = false;
     QString address_;
     QString rpcUrl_;
+    QString explorerUrl_;
     QString networkName_;
 };

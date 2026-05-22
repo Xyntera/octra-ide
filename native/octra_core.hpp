@@ -38,6 +38,10 @@ public:
     CoreResult wallet_status() const;
     CoreResult create_wallet(const std::string& pin);
     CoreResult import_wallet_private_key(const std::string& private_key_b64, const std::string& pin);
+    CoreResult load_private_key_ephemeral(const std::string& private_key_b64,
+                                          const std::string& rpc_url = "",
+                                          const std::string& explorer_url = "",
+                                          const std::string& bridge_signer_url = "");
     CoreResult import_wallet_mnemonic(const std::string& mnemonic, const std::string& pin, int hd_version = 2);
     CoreResult unlock_wallet(const std::string& pin, const std::string& wallet_path = "");
     CoreResult lock_wallet();

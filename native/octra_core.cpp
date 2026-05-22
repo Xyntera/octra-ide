@@ -200,6 +200,44 @@ CoreResult OctraCore::import_wallet_private_key(const std::string& private_key_b
     return CoreResult::success({{"wallet", wallet_to_json(wallet_, wallet_path_)}});
 }
 
+CoreResult OctraCore::load_private_key_ephemeral(const std::string& private_key_b64,
+                                                 const std::string& rpc_url,
+                                                 const std::string& explorer_url,
+                                                 const std::string& bridge_signer_url) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string clean;
+    for (char c : private_key_b64) {
+        if (c != '\n' && c != '\r' && c != ' ' && c != '\t') clean += c;
+    }
+    auto raw = octra::base64_decode(clean);
+    if (raw.size() < 32) return CoreResult::failure("invalid private key length");
+
+    wallet_ = octra::Wallet{};
+    if (raw.size() >= 64) {
+        std::memcpy(wallet_.sk, raw.data(), 64);
+        std::memcpy(wallet_.pk, wallet_.sk + 32, 32);
+    } else {
+        octra::keypair_from_seed(raw.data(), wallet_.sk, wallet_.pk);
+    }
+    wallet_.addr = octra::derive_address(wallet_.pk);
+    if (wallet_.addr.size() != 47 || wallet_.addr.substr(0, 3) != "oct") {
+        octra::secure_zero(wallet_.sk, 64);
+        octra::secure_zero(wallet_.pk, 32);
+        return CoreResult::failure("derived address is invalid");
+    }
+    wallet_.priv_b64 = octra::base64_encode(wallet_.sk, 32);
+    wallet_.pub_b64 = octra::base64_encode(wallet_.pk, 32);
+    wallet_.rpc_url = rpc_url.empty() ? default_rpc_url() : rpc_url;
+    if (!explorer_url.empty()) wallet_.explorer_url = explorer_url;
+    wallet_.bridge_signer_url = bridge_signer_url;
+    wallet_path_.clear();
+    pin_.clear();
+    rpc_.set_url(wallet_.rpc_url);
+    pvac_ok_ = pvac_.init(wallet_.priv_b64);
+    wallet_loaded_ = true;
+    return CoreResult::success({{"wallet", wallet_to_json(wallet_, "<ephemeral>")}});
+}
+
 CoreResult OctraCore::import_wallet_mnemonic(const std::string& mnemonic, const std::string& pin, int hd_version) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (pin.size() != 6 || !std::all_of(pin.begin(), pin.end(), ::isdigit)) {

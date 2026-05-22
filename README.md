@@ -63,12 +63,37 @@ Run:
 ./build-native/octra_wallet_native
 ```
 
+### Devnet CLI
+
+Build the CLI target:
+
+```bash
+cmake --build build-native --target octra_cli -j2
+```
+
+Deploy a contract on devnet:
+
+```bash
+./build-native/octra-cli deploy \
+  --wallet data/wallet.oct \
+  --pin 123456 \
+  --source path/to/main.aml \
+  --network devnet
+```
+
+Use `--bytecode` to skip compilation, or `--preview` to print the computed contract address without submitting.
+
+Example templates include `vault`, `token`, `escrow`, `amm`, `multisig`, `empty`, and `dictionary`.
+
+The native app also includes a `Dictionary DApp` tab for deploying the dictionary template and managing terms, definitions, translations, and metadata on devnet.
+
 ## Windows release
 
 The repo includes:
 - portable bundle packaging
 - NSIS installer packaging
-- GitHub Actions Windows release workflow
+- GitHub Actions Windows build workflow for `main`
+- GitHub Actions Windows release workflow for tags
 - optional signing hook
 
 Secrets for signed Windows releases:
@@ -76,7 +101,17 @@ Secrets for signed Windows releases:
 - `WIN_SIGN_PFX_PASSWORD`
 
 Workflow file:
+- `.github/workflows/windows-build.yml`
 - `.github/workflows/windows-release.yml`
+
+## Linux and macOS release
+
+The repo also ships release workflows for the other desktop targets:
+- `.github/workflows/linux-release.yml` creates a Linux tarball and publishes it on tag builds
+- `.github/workflows/macos-release.yml` creates a macOS `.app` bundle zip and publishes it on tag builds
+
+The non-release Linux CI build remains in:
+- `.github/workflows/linux-build.yml`
 
 ## Linux CI
 

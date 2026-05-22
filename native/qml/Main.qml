@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import Qt.labs.platform as LabsPlatform
@@ -9,32 +10,40 @@ ApplicationWindow {
     width: 1440
     height: 940
     visible: true
-    title: "Octra Wallet Native IDE"
+    title: "Octra IDE"
 
-    property color bgTop: "#dbeafe"
-    property color bgBottom: "#eff6ff"
-    property color panelBg: "#ffffff"
-    property color panelAlt: "#f5f9ff"
-    property color ink: "#12355b"
-    property color muted: "#5b7aa0"
-    property color accent: "#2563eb"
-    property color accentStrong: "#1d4ed8"
-    property color accentSoft: "#bfdbfe"
-    property color okColor: "#1d8a5b"
-    property color warnColor: "#c98911"
-    property color dangerColor: "#c23b4d"
+    property color bgTop: "#050b16"
+    property color bgBottom: "#0c1730"
+    property color panelBg: "#101c33"
+    property color panelAlt: "#15233d"
+    property color ink: "#f5f7fb"
+    property color muted: "#8ea4c4"
+    property color accent: "#6ea8fe"
+    property color accentStrong: "#4f7cff"
+    property color accentSoft: "#263752"
+    property color okColor: "#52c89b"
+    property color warnColor: "#ffbf66"
+    property color dangerColor: "#ff6b81"
 
     property string feedback: ""
     property string consoleText: ""
     property string abiText: ""
     property string disasmText: ""
     property string storageText: ""
+    property string dictionaryText: ""
     property int outputTabIndex: 2
     property string currentProjectId: ""
     property string activeFilePath: ""
     property bool projectDirty: false
     property int editorErrorLine: -1
     property string editorStatus: ""
+    property string lastTxHash: ""
+
+    Material.theme: Material.Dark
+    Material.primary: accent
+    Material.accent: accentStrong
+    Material.background: bgBottom
+    Material.foreground: ink
 
     palette.window: bgBottom
     palette.base: panelBg
@@ -54,6 +63,7 @@ ApplicationWindow {
 
     ListModel { id: projectSummaryModel }
     ListModel { id: projectFileModel }
+    ListModel { id: transactionModel }
 
     function logConsole(kind, message) {
         var stamp = new Date().toLocaleTimeString()
@@ -75,6 +85,75 @@ ApplicationWindow {
         if (normalized.startsWith("/"))
             normalized = normalized.substring(1)
         return normalized
+    }
+
+    function explorerBaseUrl() {
+        var base = (octraBridge.explorerUrl || "").trim()
+        if (!base.length) {
+            if (octraBridge.networkName === "Mainnet")
+                base = "https://octrascan.io"
+            else
+                base = "https://devnet.octrascan.io"
+        }
+        return base.replace(/\/+$/, "")
+    }
+
+    function txExplorerUrl(hash) {
+        var txHash = (hash || "").trim()
+        if (!txHash.length)
+            return ""
+        return explorerBaseUrl() + "/tx.html?hash=" + encodeURIComponent(txHash)
+    }
+
+    function formatTxTime(ts) {
+        var value = Number(ts || 0)
+        if (!value)
+            return "pending"
+        return new Date(value * 1000).toLocaleString()
+    }
+
+    function walletExplorerLabel() {
+        return explorerBaseUrl().replace(/^https?:\/\//, "")
+    }
+
+    function refreshTransactions() {
+        if (!octraBridge.loaded) {
+            transactionModel.clear()
+            return
+        }
+        var res = octraBridge.getHistory(12, 0)
+        if (!res.ok) {
+            setFeedback(res, "Transaction history loaded", "Transaction history failed")
+            return
+        }
+        transactionModel.clear()
+        var txs = res.transactions || []
+        for (var i = 0; i < txs.length; ++i) {
+            var tx = txs[i] || {}
+            var hash = (tx.hash || tx.tx_hash || "").trim()
+            transactionModel.append({
+                hash: hash,
+                from: tx.from || "",
+                to_: tx.to_ || tx.to || "",
+                amount_raw: tx.amount_raw || tx.amount || "0",
+                op_type: tx.op_type || "standard",
+                status: tx.status || "confirmed",
+                timestamp: tx.timestamp || 0,
+                reject_reason: tx.reject_reason || "",
+                explorerUrl: txExplorerUrl(hash)
+            })
+        }
+    }
+
+    function submitTransaction(result, successLabel, failureLabel) {
+        setFeedback(result, successLabel, failureLabel)
+        if (result.ok) {
+            if (result.tx_hash)
+                lastTxHash = result.tx_hash
+            if (result.tx_hash || result.hash)
+                refreshTransactions()
+        }
+        return result
     }
 
     function refreshWorkspace(preferredProjectId) {
@@ -383,8 +462,12 @@ ApplicationWindow {
         }
         if (res.deploy && res.deploy.recommended !== undefined)
             deployFee.text = String(res.deploy.recommended)
+        if (res.deploy && res.deploy.recommended !== undefined)
+            dictionaryDeployFee.text = String(res.deploy.recommended)
         if (res.call && res.call.recommended !== undefined)
             contractFee.text = String(res.call.recommended)
+        if (res.call && res.call.recommended !== undefined)
+            dictionaryFee.text = String(res.call.recommended)
         if (res.standard && res.standard.recommended !== undefined)
             sendFee.text = String(res.standard.recommended)
         logConsole("info", "Recommended fees loaded")
@@ -396,12 +479,17 @@ ApplicationWindow {
 
     function deployCurrentContract() {
         var res = octraBridge.deployContract(bytecodeOutput.text, deployParams.text, deployFee.text)
-        setFeedback(res, "Deploy transaction submitted", "Deploy failed")
+        submitTransaction(res, "Deploy transaction submitted", "Deploy failed")
     }
 
     function callCurrentContract() {
         var res = octraBridge.callContract(contractAddr.text, contractMethod.text, contractParams.text, contractAmount.text, contractFee.text)
-        setFeedback(res, "Call transaction submitted", "Call failed")
+        submitTransaction(res, "Call transaction submitted", "Call failed")
+    }
+
+    function sendCurrentTransfer() {
+        var res = octraBridge.send(sendTo.text, sendAmount.text, sendFee.text, sendMessage.text)
+        submitTransaction(res, "Transfer submitted", "Send failed")
     }
 
     function viewCurrentContract() {
@@ -411,6 +499,76 @@ ApplicationWindow {
             storageText = JSON.stringify(res, null, 2)
             outputTabIndex = 3
         }
+    }
+
+    function dictionaryParams(values) {
+        return JSON.stringify(values)
+    }
+
+    function dictionaryCall(method, values, amountRaw) {
+        return octraBridge.callContract(dictionaryAddress.text, method, dictionaryParams(values), amountRaw || "", dictionaryFee.text)
+    }
+
+    function dictionaryView(method, values) {
+        return octraBridge.viewContract(dictionaryAddress.text, method, dictionaryParams(values))
+    }
+
+    function refreshDictionaryOutput(result, successLabel, failureLabel) {
+        setFeedback(result, successLabel, failureLabel)
+        if (result.ok) {
+            dictionaryText = JSON.stringify(result, null, 2)
+            outputTabIndex = 3
+        }
+    }
+
+    function deployDictionaryContract() {
+        var res = octraBridge.deployTemplate("dictionary", "[]", dictionaryDeployFee.text)
+        submitTransaction(res, "Dictionary deployed", "Dictionary deploy failed")
+        refreshDictionaryOutput(res, "Dictionary deployed", "Dictionary deploy failed")
+        if (res.ok && res.contract_address)
+            dictionaryAddress.text = res.contract_address
+    }
+
+    function loadDictionaryStats() {
+        var total = dictionaryView("total_terms", [])
+        if (total.ok && total.total_terms !== undefined)
+            dictionaryTotal.text = String(total.total_terms)
+        var owner = dictionaryView("owner_address", [])
+        if (owner.ok && owner.owner_address !== undefined)
+            dictionaryOwner.text = owner.owner_address
+        refreshDictionaryOutput(total.ok ? total : owner, "Dictionary stats loaded", "Dictionary stats failed")
+    }
+
+    function lookupDictionaryTerm() {
+        var term = dictionaryTerm.text.trim()
+        var definition = dictionaryView("definition_of", [term])
+        var example = dictionaryView("example_of", [term])
+        var category = dictionaryView("category_of", [term])
+        var pronunciation = dictionaryView("pronunciation_of", [term])
+        var synonym = dictionaryView("synonym_of", [term])
+        var antonym = dictionaryView("antonym_of", [term])
+        var exists = dictionaryView("exists", [term])
+        var revision = dictionaryView("revision_of", [term])
+        var translation = dictionaryView("translation_of", [term, dictionaryLanguage.text.trim()])
+        dictionaryText = JSON.stringify({
+            exists: exists.ok ? exists.exists : exists.error,
+            definition: definition.ok ? definition.definition_of : definition.error,
+            example: example.ok ? example.example_of : example.error,
+            category: category.ok ? category.category_of : category.error,
+            pronunciation: pronunciation.ok ? pronunciation.pronunciation_of : pronunciation.error,
+            synonym: synonym.ok ? synonym.synonym_of : synonym.error,
+            antonym: antonym.ok ? antonym.antonym_of : antonym.error,
+            revision: revision.ok ? revision.revision_of : revision.error,
+            translation: translation.ok ? translation.translation_of : translation.error
+        }, null, 2)
+        outputTabIndex = 3
+        setFeedback(exists.ok ? exists : definition, "Dictionary lookup loaded", "Dictionary lookup failed")
+    }
+
+    function updateDictionary(action, values) {
+        var res = dictionaryCall(action, values, "")
+        submitTransaction(res, action + " submitted", action + " failed")
+        refreshDictionaryOutput(res, action + " submitted", action + " failed")
     }
 
     function verifyCurrentSource() {
@@ -476,6 +634,17 @@ ApplicationWindow {
     Component.onCompleted: {
         refreshWorkspace("")
         fillRecommendedFees()
+        refreshTransactions()
+    }
+
+    Connections {
+        target: octraBridge
+        function onStateChanged() {
+            if (octraBridge.loaded)
+                refreshTransactions()
+            else
+                transactionModel.clear()
+        }
     }
 
     Timer {
@@ -553,40 +722,198 @@ ApplicationWindow {
     }
 
     header: ToolBar {
-        background: Rectangle { color: "#d6e9ff"; border.color: accentSoft }
+        background: Rectangle {
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#0d1730" }
+                GradientStop { position: 1.0; color: "#0a1324" }
+            }
+            border.color: "#233554"
+        }
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 12
+            anchors.margins: 14
+            spacing: 14
 
-            Label {
-                text: octraBridge.loaded ? "Wallet: " + octraBridge.address : "Wallet Locked"
-                font.pixelSize: 18
-                font.bold: true
-                color: ink
+            ColumnLayout {
                 Layout.fillWidth: true
+                spacing: 3
+                Label {
+                    text: "Octra IDE"
+                    font.pixelSize: 20
+                    font.bold: true
+                    color: ink
+                }
+                Label {
+                    text: octraBridge.loaded ? "Wallet " + octraBridge.address : "Wallet locked"
+                    color: muted
+                    elide: Label.ElideRight
+                    Layout.fillWidth: true
+                }
             }
-            Label {
-                text: octraBridge.networkName + " | " + octraBridge.rpcUrl
-                color: muted
+
+            RowLayout {
+                spacing: 8
+                Rectangle {
+                    radius: 999
+                    color: octraBridge.loaded ? "#143b32" : "#3b2c14"
+                    border.color: octraBridge.loaded ? okColor : warnColor
+                    border.width: 1
+                    implicitHeight: 30
+                    implicitWidth: 106
+                    Label {
+                        anchors.centerIn: parent
+                        text: octraBridge.loaded ? "Unlocked" : "Locked"
+                        color: ink
+                        font.pixelSize: 11
+                        font.bold: true
+                    }
+                }
+                    Rectangle {
+                        radius: 999
+                        color: "#11213c"
+                        border.color: accentSoft
+                        border.width: 1
+                        implicitHeight: 30
+                        implicitWidth: 180
+                        Label {
+                            anchors.centerIn: parent
+                            text: octraBridge.networkName + " • " + octraBridge.rpcUrl
+                            color: ink
+                            font.pixelSize: 11
+                            font.bold: true
+                            width: parent.width - 14
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Label.ElideRight
+                        }
+                    }
             }
         }
     }
 
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
-        spacing: 12
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 12
 
-        TabBar {
-            id: mainTabs
-            Layout.fillWidth: true
-            background: Rectangle { color: "transparent" }
-            TabButton { text: "Wallet" }
-            TabButton { text: "Dashboard" }
-            TabButton { text: "Dev Tools IDE" }
-            TabButton { text: "Settings" }
-        }
+            Frame {
+                Layout.fillWidth: true
+                background: Rectangle {
+                    radius: 18
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "#11203b" }
+                        GradientStop { position: 1.0; color: "#0f1a30" }
+                    }
+                    border.color: accentSoft
+                }
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 12
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 14
+                        color: "#13233f"
+                        border.color: accentSoft
+                        border.width: 1
+                        implicitHeight: 64
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 4
+                            Label { text: "Workspace"; color: muted; font.pixelSize: 11; font.capitalization: Font.AllUppercase; font.letterSpacing: 1.1 }
+                            Label {
+                                text: currentProjectId.length ? projectNameField.text : "No project open"
+                                color: ink
+                                font.pixelSize: 16
+                                font.bold: true
+                                elide: Label.ElideRight
+                                width: parent.width
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 14
+                        color: "#13233f"
+                        border.color: accentSoft
+                        border.width: 1
+                        implicitHeight: 64
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 4
+                            Label { text: "Network"; color: muted; font.pixelSize: 11; font.capitalization: Font.AllUppercase; font.letterSpacing: 1.1 }
+                            Label {
+                                text: octraBridge.networkName
+                                color: ink
+                                font.pixelSize: 16
+                                font.bold: true
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 14
+                        color: "#13233f"
+                        border.color: accentSoft
+                        border.width: 1
+                        implicitHeight: 64
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 4
+                            Label { text: "Active File"; color: muted; font.pixelSize: 11; font.capitalization: Font.AllUppercase; font.letterSpacing: 1.1 }
+                            Label {
+                                text: activeFilePath.length ? activeFilePath : "main.aml"
+                                color: ink
+                                font.pixelSize: 16
+                                font.bold: true
+                                elide: Label.ElideRight
+                                width: parent.width
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 14
+                        color: projectDirty ? "#342312" : "#12382f"
+                        border.color: projectDirty ? warnColor : okColor
+                        border.width: 1
+                        implicitHeight: 64
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 4
+                            Label { text: "Save State"; color: muted; font.pixelSize: 11; font.capitalization: Font.AllUppercase; font.letterSpacing: 1.1 }
+                            Label {
+                                text: projectDirty ? "Autosave pending" : "All changes saved"
+                                color: ink
+                                font.pixelSize: 16
+                                font.bold: true
+                            }
+                        }
+                    }
+                }
+            }
+
+            TabBar {
+                id: mainTabs
+                Layout.fillWidth: true
+                background: Rectangle {
+                    radius: 18
+                    color: "#0f1a30"
+                    border.color: accentSoft
+                }
+                TabButton { text: "Home" }
+                TabButton { text: "Dashboard" }
+                TabButton { text: "Dev Tools IDE" }
+                TabButton { text: "Dictionary DApp" }
+                TabButton { text: "Settings" }
+            }
 
         StackLayout {
             currentIndex: mainTabs.currentIndex
@@ -596,37 +923,250 @@ ApplicationWindow {
             Frame {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
-                ScrollView {
+                background: Rectangle { color: "transparent" }
+                SplitView {
                     anchors.fill: parent
-                    contentWidth: availableWidth
+                    spacing: 12
+
                     ColumnLayout {
-                        width: parent.width
+                        SplitView.preferredWidth: 520
                         spacing: 12
 
-                        Label { text: "Wallet Access"; font.bold: true; color: ink }
-                        TextField { id: unlockPin; placeholderText: "6-digit PIN"; echoMode: TextInput.Password; Layout.fillWidth: true }
-                        RowLayout {
-                            Button {
-                                text: "Unlock"
-                                onClicked: setFeedback(octraBridge.unlockWallet(unlockPin.text), "Wallet unlocked", "Unlock failed")
-                            }
-                            Button {
-                                text: "Create Wallet"
-                                onClicked: setFeedback(octraBridge.createWallet(unlockPin.text), "Wallet created", "Create failed")
-                            }
-                        }
-                        Label { text: "Import Private Key"; font.bold: true; color: ink }
-                        TextArea {
-                            id: privateKey
+                        Frame {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 150
-                            wrapMode: TextEdit.WrapAnywhere
-                            placeholderText: "Private key (base64)"
+                            Layout.preferredHeight: 260
+                            background: Rectangle {
+                                radius: 18
+                                gradient: Gradient {
+                                    GradientStop { position: 0.0; color: "#162b52" }
+                                    GradientStop { position: 1.0; color: "#0f1a30" }
+                                }
+                                border.color: accentSoft
+                            }
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 18
+                                spacing: 12
+
+                                Label {
+                                    text: "Octra IDE"
+                                    color: accent
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    font.capitalization: Font.AllUppercase
+                                    font.letterSpacing: 1.2
+                                }
+                                Label {
+                                    text: "Premium Octra workspace for wallets, contract deployment, and on-chain dictionary apps."
+                                    color: ink
+                                    font.pixelSize: 24
+                                    font.bold: true
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: "Devnet-ready, template-aware, and tuned for fast create, deploy, inspect, and verify flows."
+                                    color: muted
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
+
+                                RowLayout {
+                                    spacing: 8
+                                    Rectangle {
+                                        radius: 999
+                                        color: "#143b32"
+                                        border.color: okColor
+                                        border.width: 1
+                                        implicitHeight: 28
+                                        implicitWidth: 108
+                                        Label { anchors.centerIn: parent; text: "Devnet"; color: ink; font.pixelSize: 11; font.bold: true }
+                                    }
+                                    Rectangle {
+                                        radius: 999
+                                        color: "#11213c"
+                                        border.color: accentSoft
+                                        border.width: 1
+                                        implicitHeight: 28
+                                        implicitWidth: 122
+                                        Label { anchors.centerIn: parent; text: "AML + DApps"; color: ink; font.pixelSize: 11; font.bold: true }
+                                    }
+                                    Rectangle {
+                                        radius: 999
+                                        color: "#342312"
+                                        border.color: warnColor
+                                        border.width: 1
+                                        implicitHeight: 28
+                                        implicitWidth: 126
+                                        Label { anchors.centerIn: parent; text: "Explorer links"; color: ink; font.pixelSize: 11; font.bold: true }
+                                    }
+                                }
+
+                                RowLayout {
+                                    spacing: 10
+                                    Button { text: "Open Dashboard"; onClicked: mainTabs.currentIndex = 1 }
+                                    Button { text: "Open IDE"; onClicked: mainTabs.currentIndex = 2 }
+                                    Button { text: "Open Dictionary"; onClicked: mainTabs.currentIndex = 3 }
+                                }
+                            }
                         }
-                        Button {
-                            text: "Import Private Key"
-                            onClicked: setFeedback(octraBridge.importPrivateKey(privateKey.text, unlockPin.text), "Private key imported", "Import failed")
+
+                        Frame {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 10
+
+                                Label { text: "Wallet Access"; font.bold: true; color: ink }
+                                Label { text: octraBridge.loaded ? "Wallet ready: " + octraBridge.address : "Create or unlock a wallet to start."; color: muted; wrapMode: Text.Wrap }
+                                TextField { id: unlockPin; placeholderText: "6-digit PIN"; echoMode: TextInput.Password; Layout.fillWidth: true }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Button {
+                                        text: "Unlock"
+                                        Layout.fillWidth: true
+                                        onClicked: setFeedback(octraBridge.unlockWallet(unlockPin.text), "Wallet unlocked", "Unlock failed")
+                                    }
+                                    Button {
+                                        text: "Create Wallet"
+                                        Layout.fillWidth: true
+                                        onClicked: setFeedback(octraBridge.createWallet(unlockPin.text), "Wallet created", "Create failed")
+                                    }
+                                }
+                                Label { text: "Import Private Key"; font.bold: true; color: ink }
+                                TextArea {
+                                    id: privateKey
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 120
+                                    wrapMode: TextEdit.WrapAnywhere
+                                    placeholderText: "Private key (base64)"
+                                    background: Rectangle { color: panelAlt; radius: 12; border.color: "#d7e6fb" }
+                                }
+                                Button {
+                                    text: "Import Private Key"
+                                    Layout.fillWidth: true
+                                    onClicked: setFeedback(octraBridge.importPrivateKey(privateKey.text, unlockPin.text), "Private key imported", "Import failed")
+                                }
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        SplitView.fillWidth: true
+                        spacing: 12
+
+                        Frame {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 10
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Label { text: "Recent Transactions"; font.bold: true; color: ink }
+                                        Label {
+                                            text: octraBridge.loaded ? ("Explorer: " + walletExplorerLabel()) : "Unlock a wallet to load activity."
+                                            color: muted
+                                            wrapMode: Text.Wrap
+                                        }
+                                    }
+                                    Button {
+                                        text: "Refresh"
+                                        onClicked: refreshTransactions()
+                                    }
+                                }
+
+                                ListView {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    model: transactionModel
+                                    clip: true
+                                    spacing: 8
+                                    delegate: Frame {
+                                        width: ListView.view.width
+                                        background: Rectangle {
+                                            radius: 14
+                                            color: panelAlt
+                                            border.color: accentSoft
+                                        }
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 10
+                                            spacing: 6
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                Label {
+                                                    text: hash.length ? hash.slice(0, 16) + "..." : "Transaction"
+                                                    color: ink
+                                                    font.bold: true
+                                                    elide: Label.ElideRight
+                                                    Layout.fillWidth: true
+                                                }
+                                                Rectangle {
+                                                    radius: 999
+                                                    color: status === "confirmed" ? "#12382f" : "#3b2c14"
+                                                    border.color: status === "confirmed" ? okColor : warnColor
+                                                    border.width: 1
+                                                    implicitHeight: 24
+                                                    implicitWidth: 92
+                                                    Label {
+                                                        anchors.centerIn: parent
+                                                        text: status
+                                                        color: ink
+                                                        font.pixelSize: 10
+                                                        font.bold: true
+                                                    }
+                                                }
+                                            }
+
+                                            Label {
+                                                text: op_type + " • " + (amount_raw || "0") + " raw • " + formatTxTime(timestamp)
+                                                color: muted
+                                                wrapMode: Text.Wrap
+                                                Layout.fillWidth: true
+                                            }
+
+                                            Label {
+                                                text: "from " + (from || "n/a") + " to " + (to_ || "n/a")
+                                                color: muted
+                                                font.pixelSize: 11
+                                                elide: Label.ElideMiddle
+                                                Layout.fillWidth: true
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                Label {
+                                                    text: "<a href='" + explorerUrl + "'>Open in explorer</a>"
+                                                    textFormat: Text.RichText
+                                                    color: accent
+                                                    onLinkActivated: Qt.openUrlExternally(link)
+                                                    Layout.fillWidth: true
+                                                }
+                                                Button {
+                                                    text: "Inspect"
+                                                    onClicked: {
+                                                        receiptHash.text = hash
+                                                        loadContractReceipt()
+                                                        mainTabs.currentIndex = 2
+                                                        actionTabs.currentIndex = 4
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -635,30 +1175,80 @@ ApplicationWindow {
             Frame {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
-                ScrollView {
+                background: Rectangle { color: "transparent" }
+
+                SplitView {
                     anchors.fill: parent
-                    contentWidth: availableWidth
-                    ColumnLayout {
-                        width: parent.width
-                        spacing: 12
-                        Label { text: "Dashboard"; font.bold: true; color: ink }
-                        Button {
-                            text: "Refresh Balance"
-                            onClicked: setFeedback(octraBridge.getBalance(), "Balance refreshed", "Balance fetch failed")
-                        }
-                        TextField { id: sendTo; placeholderText: "Recipient oct..."; Layout.fillWidth: true }
-                        TextField { id: sendAmount; placeholderText: "Amount in OCT"; Layout.fillWidth: true }
-                        TextField { id: sendFee; placeholderText: "Fee OU"; Layout.fillWidth: true }
-                        TextField { id: sendMessage; placeholderText: "Message"; Layout.fillWidth: true }
-                        RowLayout {
-                            Button {
-                                text: "Use Recommended Fee"
-                                onClicked: fillRecommendedFees()
+                    spacing: 12
+
+                    Frame {
+                        SplitView.preferredWidth: 420
+                        background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 10
+
+                            Label { text: "Dashboard"; font.bold: true; color: ink }
+                            Label { text: octraBridge.loaded ? ("Balance for " + octraBridge.address) : "Unlock a wallet to send funds."; color: muted; wrapMode: Text.Wrap }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Button {
+                                    text: "Refresh Balance"
+                                    Layout.fillWidth: true
+                                    onClicked: {
+                                        setFeedback(octraBridge.getBalance(), "Balance refreshed", "Balance fetch failed")
+                                        refreshTransactions()
+                                    }
+                                }
+                                Button {
+                                    text: "Refresh History"
+                                    Layout.fillWidth: true
+                                    onClicked: refreshTransactions()
+                                }
                             }
-                            Button {
-                                text: "Send"
-                                onClicked: setFeedback(octraBridge.send(sendTo.text, sendAmount.text, sendFee.text, sendMessage.text), "Transfer submitted", "Send failed")
+                            TextField { id: sendTo; placeholderText: "Recipient oct..."; Layout.fillWidth: true }
+                            TextField { id: sendAmount; placeholderText: "Amount in OCT"; Layout.fillWidth: true }
+                            TextField { id: sendFee; placeholderText: "Fee OU"; Layout.fillWidth: true }
+                            TextField { id: sendMessage; placeholderText: "Message"; Layout.fillWidth: true }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Button {
+                                    text: "Use Recommended Fee"
+                                    Layout.fillWidth: true
+                                    onClicked: fillRecommendedFees()
+                                }
+                                Button {
+                                    text: "Send"
+                                    Layout.fillWidth: true
+                                    onClicked: sendCurrentTransfer()
+                                }
+                            }
+                        }
+                    }
+
+                    Frame {
+                        SplitView.fillWidth: true
+                        background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 10
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label { text: "Network / Send Details"; font.bold: true; color: ink; Layout.fillWidth: true }
+                                Label { text: walletExplorerLabel(); color: muted }
+                            }
+
+                            TextArea {
+                                id: dashboardConsole
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                readOnly: true
+                                text: feedback
+                                wrapMode: TextEdit.WrapAnywhere
+                                background: Rectangle { color: panelAlt; radius: 12; border.color: "#d7e6fb" }
                             }
                         }
                     }
@@ -995,6 +1585,130 @@ ApplicationWindow {
                                             placeholderText: "Storage / inspect output"
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Frame {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                background: Rectangle { color: "transparent" }
+
+                SplitView {
+                    anchors.fill: parent
+                    spacing: 12
+
+                    Frame {
+                        SplitView.preferredWidth: 380
+                        background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
+                        ScrollView {
+                            anchors.fill: parent
+                            contentWidth: availableWidth
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 10
+
+                                Label { text: "Dictionary DApp"; font.bold: true; color: ink }
+                                Label { text: "Deploy, curate, and query an on-chain dictionary from one screen."; color: muted; wrapMode: Text.Wrap }
+
+                                TextField { id: dictionaryAddress; placeholderText: "Dictionary contract address"; Layout.fillWidth: true }
+                                RowLayout {
+                                    Button { text: "Deploy Dictionary"; onClicked: deployDictionaryContract() }
+                                    Button { text: "Load Stats"; onClicked: loadDictionaryStats() }
+                                }
+                                TextField { id: dictionaryDeployFee; placeholderText: "Deploy fee OU"; Layout.fillWidth: true }
+                                TextField { id: dictionaryFee; placeholderText: "Call fee OU"; Layout.fillWidth: true }
+                                Button { text: "Use Recommended Fees"; onClicked: fillRecommendedFees() }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    radius: 14
+                                    color: panelAlt
+                                    border.color: "#d7e6fb"
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 8
+                                        Label { text: "Contract Summary"; font.bold: true; color: ink }
+                                        TextField { id: dictionaryOwner; readOnly: true; placeholderText: "Owner"; Layout.fillWidth: true }
+                                        TextField { id: dictionaryTotal; readOnly: true; placeholderText: "Total terms"; Layout.fillWidth: true }
+                                    }
+                                }
+
+                                Label { text: "Lookup"; font.bold: true; color: ink }
+                                TextField { id: dictionaryTerm; placeholderText: "Term"; Layout.fillWidth: true }
+                                TextField { id: dictionaryLanguage; placeholderText: "Language code for translation, e.g. es"; Layout.fillWidth: true }
+                                RowLayout {
+                                    Button { text: "Lookup Term"; onClicked: lookupDictionaryTerm() }
+                                    Button { text: "Remove Term"; onClicked: updateDictionary("remove_term", [dictionaryTerm.text.trim()]) }
+                                }
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        SplitView.fillWidth: true
+                        SplitView.fillHeight: true
+                        spacing: 12
+
+                        Frame {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
+                            ScrollView {
+                                anchors.fill: parent
+                                contentWidth: availableWidth
+                                ColumnLayout {
+                                    width: parent.width
+                                    spacing: 12
+
+                                    Label { text: "Entry Editor"; font.bold: true; color: ink }
+                                    TextField { id: dictionaryDefinition; placeholderText: "Definition"; Layout.fillWidth: true }
+                                    TextField { id: dictionaryExample; placeholderText: "Example sentence"; Layout.fillWidth: true }
+                                    TextField { id: dictionaryCategory; placeholderText: "Category"; Layout.fillWidth: true }
+                                    TextField { id: dictionaryPronunciation; placeholderText: "Pronunciation"; Layout.fillWidth: true }
+                                    TextField { id: dictionarySynonym; placeholderText: "Synonym"; Layout.fillWidth: true }
+                                    TextField { id: dictionaryAntonym; placeholderText: "Antonym"; Layout.fillWidth: true }
+                                    TextField { id: dictionaryTranslation; placeholderText: "Translation text"; Layout.fillWidth: true }
+
+                                    GridLayout {
+                                        Layout.fillWidth: true
+                                        columns: 2
+                                        rowSpacing: 8
+                                        columnSpacing: 8
+
+                                        Button { text: "Set Entry"; Layout.fillWidth: true; onClicked: updateDictionary("set_entry", [dictionaryTerm.text.trim(), dictionaryDefinition.text.trim(), dictionaryExample.text.trim(), dictionaryCategory.text.trim(), dictionaryPronunciation.text.trim()]) }
+                                        Button { text: "Set Definition"; Layout.fillWidth: true; onClicked: updateDictionary("set_definition", [dictionaryTerm.text.trim(), dictionaryDefinition.text.trim()]) }
+                                        Button { text: "Set Example"; Layout.fillWidth: true; onClicked: updateDictionary("set_example", [dictionaryTerm.text.trim(), dictionaryExample.text.trim()]) }
+                                        Button { text: "Set Category"; Layout.fillWidth: true; onClicked: updateDictionary("set_category", [dictionaryTerm.text.trim(), dictionaryCategory.text.trim()]) }
+                                        Button { text: "Set Pronunciation"; Layout.fillWidth: true; onClicked: updateDictionary("set_pronunciation", [dictionaryTerm.text.trim(), dictionaryPronunciation.text.trim()]) }
+                                        Button { text: "Set Synonym"; Layout.fillWidth: true; onClicked: updateDictionary("set_synonym", [dictionaryTerm.text.trim(), dictionarySynonym.text.trim()]) }
+                                        Button { text: "Set Antonym"; Layout.fillWidth: true; onClicked: updateDictionary("set_antonym", [dictionaryTerm.text.trim(), dictionaryAntonym.text.trim()]) }
+                                        Button { text: "Set Translation"; Layout.fillWidth: true; onClicked: updateDictionary("set_translation", [dictionaryTerm.text.trim(), dictionaryLanguage.text.trim(), dictionaryTranslation.text.trim()]) }
+                                        Button { text: "Clear Translation"; Layout.fillWidth: true; onClicked: updateDictionary("clear_translation", [dictionaryTerm.text.trim(), dictionaryLanguage.text.trim()]) }
+                                    }
+                                }
+                            }
+                        }
+
+                        Frame {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 260
+                            background: Rectangle { color: panelBg; radius: 16; border.color: accentSoft }
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 8
+                                Label { text: "Output"; font.bold: true; color: ink }
+                                TextArea {
+                                    readOnly: true
+                                    text: dictionaryText
+                                    wrapMode: TextEdit.WrapAnywhere
+                                    placeholderText: "Dictionary results and responses"
+                                    background: Rectangle { color: panelAlt; radius: 12; border.color: "#d7e6fb" }
                                 }
                             }
                         }

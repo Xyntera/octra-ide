@@ -84,6 +84,9 @@ if(OCTRA_BUILD_QT_APP)
         native/qt_app_bridge.cpp
     )
     set_target_properties(octra_wallet_native PROPERTIES WIN32_EXECUTABLE TRUE)
+    if(APPLE)
+        set_target_properties(octra_wallet_native PROPERTIES MACOSX_BUNDLE TRUE)
+    endif()
 
     qt_add_qml_module(octra_wallet_native
         URI OctraWallet
@@ -103,6 +106,7 @@ if(OCTRA_BUILD_QT_APP)
             static/templates/amm/main.aml
             static/templates/escrow/main.aml
             static/templates/multisig/main.aml
+            static/templates/dictionary/main.aml
     )
 
     target_link_libraries(octra_wallet_native PRIVATE
@@ -114,3 +118,14 @@ if(OCTRA_BUILD_QT_APP)
         octra_core
     )
 endif()
+
+add_executable(octra_cli
+    tools/octra_cli.cpp
+)
+set_target_properties(octra_cli PROPERTIES OUTPUT_NAME octra-cli)
+target_include_directories(octra_cli PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(octra_cli PRIVATE
+    octra_core
+)

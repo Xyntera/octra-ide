@@ -1,0 +1,187 @@
+contract Dictionary {
+  state {
+    owner: address
+    count: int
+    present: map[string]bool
+    definitions: map[string]string
+    examples: map[string]string
+    categories: map[string]string
+    pronunciations: map[string]string
+    synonyms: map[string]string
+    antonyms: map[string]string
+    revisions: map[string]int
+    translations: map[string]map[string]string
+  }
+
+  event TermAdded(term: string)
+  event TermUpdated(term: string, version: int)
+  event TermRemoved(term: string)
+  event TranslationUpdated(term: string, lang: string)
+
+  constructor() {
+    self.owner = origin
+    self.count = 0
+  }
+
+  fn touch_term(term: string): bool {
+    if (!self.present[term]) {
+      self.present[term] = true
+      self.count += 1
+      emit TermAdded(term)
+    }
+    return true
+  }
+
+  fn bump(term: string): int {
+    self.revisions[term] = self.revisions[term] + 1
+    emit TermUpdated(term, self.revisions[term])
+    return self.revisions[term]
+  }
+
+  fn set_entry(term: string, definition: string, example: string, category: string, pronunciation: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    require(len(definition) > 0, "definition required")
+    touch_term(term)
+    self.definitions[term] = definition
+    self.examples[term] = example
+    self.categories[term] = category
+    self.pronunciations[term] = pronunciation
+    bump(term)
+    return true
+  }
+
+  fn set_definition(term: string, definition: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    require(len(definition) > 0, "definition required")
+    touch_term(term)
+    self.definitions[term] = definition
+    bump(term)
+    return true
+  }
+
+  fn set_example(term: string, example: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    touch_term(term)
+    self.examples[term] = example
+    bump(term)
+    return true
+  }
+
+  fn set_category(term: string, category: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    touch_term(term)
+    self.categories[term] = category
+    bump(term)
+    return true
+  }
+
+  fn set_pronunciation(term: string, pronunciation: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    touch_term(term)
+    self.pronunciations[term] = pronunciation
+    bump(term)
+    return true
+  }
+
+  fn set_synonym(term: string, synonym: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    touch_term(term)
+    self.synonyms[term] = synonym
+    bump(term)
+    return true
+  }
+
+  fn set_antonym(term: string, antonym: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    touch_term(term)
+    self.antonyms[term] = antonym
+    bump(term)
+    return true
+  }
+
+  fn set_translation(term: string, lang: string, text: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    require(len(lang) > 0, "language required")
+    touch_term(term)
+    self.translations[term][lang] = text
+    emit TranslationUpdated(term, lang)
+    bump(term)
+    return true
+  }
+
+  fn clear_translation(term: string, lang: string): bool {
+    require(caller == self.owner, "owner only")
+    require(len(term) > 0, "term required")
+    require(len(lang) > 0, "language required")
+    self.translations[term][lang] = ""
+    bump(term)
+    return true
+  }
+
+  fn remove_term(term: string): bool {
+    require(caller == self.owner, "owner only")
+    require(self.present[term], "term missing")
+    self.present[term] = false
+    self.definitions[term] = ""
+    self.examples[term] = ""
+    self.categories[term] = ""
+    self.pronunciations[term] = ""
+    self.synonyms[term] = ""
+    self.antonyms[term] = ""
+    self.count -= 1
+    emit TermRemoved(term)
+    return true
+  }
+
+  view fn exists(term: string): bool {
+    return self.present[term]
+  }
+
+  view fn definition_of(term: string): string {
+    return self.definitions[term]
+  }
+
+  view fn example_of(term: string): string {
+    return self.examples[term]
+  }
+
+  view fn category_of(term: string): string {
+    return self.categories[term]
+  }
+
+  view fn pronunciation_of(term: string): string {
+    return self.pronunciations[term]
+  }
+
+  view fn synonym_of(term: string): string {
+    return self.synonyms[term]
+  }
+
+  view fn antonym_of(term: string): string {
+    return self.antonyms[term]
+  }
+
+  view fn translation_of(term: string, lang: string): string {
+    return self.translations[term][lang]
+  }
+
+  view fn revision_of(term: string): int {
+    return self.revisions[term]
+  }
+
+  view fn total_terms(): int {
+    return self.count
+  }
+
+  view fn owner_address(): address {
+    return self.owner
+  }
+}

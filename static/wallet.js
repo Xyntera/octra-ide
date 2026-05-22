@@ -116,6 +116,7 @@ var _tokTxGen = 0;
 var _compiledAbi = null;
 var _fees = {};
 var _rpcHost = '';
+var _dictionaryDefaultAddr = 'oct9Yq6PMkeTjdMhZkzVadPV5FZD4VkxnKjKVDFEqvy4vVF';
 var _hasMasterSeed = false;
 var _addressRuntime = {};
 var _tokenMetaInflight = {};
@@ -1297,6 +1298,7 @@ var tabId = tabs[i].getAttribute('data-view');
   if (name === 'stealth') refreshStealthBalance();
   if (name === 'tokens') loadTokens();
   if (name === 'dev') refreshContractBalance();
+  if (name === 'dictionary') refreshDictionaryStats();
   var devBtn = $('hdr-dev');
   if (devBtn) devBtn.style.background = (name === 'dev') ? '#3B567F' : '';
 }
@@ -2365,6 +2367,310 @@ async function doContractView() {
   } catch (e) {
     showResult('ct-call-result', false, e.message);
     consoleLog('error', 'view ' + method + '() failed: ' + e.message);
+  }
+}
+
+function dictionaryAddress() {
+  var el = $('dict-address');
+  var addr = el ? el.value.trim() : '';
+  return addr || _dictionaryDefaultAddr;
+}
+
+function syncDictionaryAddress(addr) {
+  var fields = ['dict-address', 'ct-call-addr', 'ct-info-addr', 'ct-verify-addr'];
+  for (var i = 0; i < fields.length; i++) {
+    var el = $(fields[i]);
+    if (el) el.value = addr;
+  }
+}
+
+function dictionarySetNetworkLabel() {
+  var el = $('dict-stat-network');
+  if (el) el.textContent = _rpcHost ? networkLabel(_rpcHost) : 'online';
+}
+
+function dictionaryDisplayMessage(resultId, ok, title, body) {
+  var html = '<div class="result-msg ' + (ok ? 'result-ok' : 'result-error') + '">';
+  html += escapeHtml(title || '');
+  if (body) html += '<br>' + body;
+  html += '</div>';
+  var el = $(resultId);
+  if (el) el.innerHTML = html;
+}
+
+function dictionaryValidateCallFee(resultId) {
+  if (!validateFee('dict-call-fee', 'call')) {
+    feeError(resultId, 'dict-call-fee', 'call');
+    return false;
+  }
+  return true;
+}
+
+async function dictionaryView(method, params) {
+  var addr = dictionaryAddress();
+  if (!validAddr(addr)) throw new Error('invalid contract address');
+  var paramStr = JSON.stringify(params || []);
+  var res = await api('GET', '/contract/view?address=' + encodeURIComponent(addr) +
+    '&method=' + encodeURIComponent(method) +
+    '&params=' + encodeURIComponent(paramStr));
+  return res;
+}
+
+async function dictionaryWrite(method, params, amount, feeInputId) {
+  var addr = dictionaryAddress();
+  if (!validAddr(addr)) throw new Error('invalid contract address');
+  if (!method) throw new Error('method required');
+  var body = {
+    address: addr,
+    method: method,
+    params: params || [],
+    amount: amount || '0'
+  };
+  var feeInput = $(feeInputId);
+  if (feeInput && feeInput.value.trim()) body.ou = feeInput.value.trim();
+  var res = await api('POST', '/contract/call', body);
+  return res;
+}
+
+function dictionaryValueRow(label, value, mono) {
+  var cls = mono ? ' class="mono"' : '';
+  return '<tr><td>' + escapeHtml(label) + '</td><td' + cls + '>' + escapeHtml(value == null || value === '' ? '-' : String(value)) + '</td></tr>';
+}
+
+async function refreshDictionaryStats() {
+  dictionarySetNetworkLabel();
+  var addr = dictionaryAddress();
+  var addrEl = $('dict-stat-address');
+  var termsEl = $('dict-stat-terms');
+  var ownerEl = $('dict-stat-owner');
+  if (addrEl) addrEl.textContent = addr || '-';
+  if (termsEl) termsEl.textContent = '...';
+  if (ownerEl) ownerEl.textContent = '...';
+  try {
+    var results = await Promise.all([
+      api('GET', '/contract/info?address=' + encodeURIComponent(addr)),
+      dictionaryView('total_terms', []),
+      dictionaryView('owner_address', [])
+    ]);
+    var info = results[0] || {};
+    var total = results[1] && results[1].result != null ? results[1].result : '-';
+    var owner = results[2] && results[2].result != null ? results[2].result : (info.owner || '-');
+    if (addrEl) addrEl.textContent = info.address || addr;
+    if (termsEl) termsEl.textContent = String(total);
+    if (ownerEl) ownerEl.textContent = owner;
+    if ($('ct-info-addr')) $('ct-info-addr').value = info.address || addr;
+  } catch (e) {
+    if (termsEl) termsEl.textContent = '-';
+    if (ownerEl) ownerEl.textContent = '-';
+  }
+}
+
+async function dictionaryDeploy() {
+  clearResult('dict-deploy-result');
+  var feeInput = $('dict-deploy-fee');
+  if (!validateFee('dict-deploy-fee', 'deploy')) { feeError('dict-deploy-result', 'dict-deploy-fee', 'deploy'); return; }
+  try {
+    var tpl = await fetch('templates/dictionary/main.aml');
+    if (!tpl.ok) throw new Error('dictionary template not found');
+    var source = await tpl.text();
+    var compile = await api('POST', '/contract/compile-aml', { source: source });
+    var bytecode = compile.bytecode || '';
+    if (!bytecode) throw new Error('compiled bytecode missing');
+    var preview = await api('POST', '/contract/address', { bytecode: bytecode });
+    var body = { bytecode: bytecode };
+    if (feeInput && feeInput.value.trim()) body.ou = feeInput.value.trim();
+    var deploy = await api('POST', '/contract/deploy', body);
+    var addr = deploy.contract_address || preview.address || '';
+    var hash = deploy.tx_hash || '';
+    syncDictionaryAddress(addr);
+    if ($('ct-call-method')) $('ct-call-method').value = 'total_terms';
+    if ($('ct-call-params')) $('ct-call-params').value = '[]';
+    if ($('ct-call-amount')) $('ct-call-amount').value = '0';
+    if ($('ct-info-addr')) $('ct-info-addr').value = addr;
+    if ($('ct-verify-addr')) $('ct-verify-addr').value = addr;
+    dictionaryDisplayMessage('dict-deploy-result', true,
+      'dictionary deployed to ' + addr,
+      'preview address: <span class="mono">' + escapeHtml(preview.address || addr) + '</span><br>tx: ' + txLink(hash) + '<br>compiled ' + (compile.instructions || '?') + ' instructions');
+    consoleLog('event', 'dictionary deploy -> ' + addr);
+    await refreshDictionaryStats();
+    loadDashboard();
+  } catch (e) {
+    dictionaryDisplayMessage('dict-deploy-result', false, e.message);
+  }
+}
+
+async function dictionaryLookup(full) {
+  clearResult('dict-lookup-result');
+  var term = $('dict-term') ? $('dict-term').value.trim() : '';
+  var lang = $('dict-lang') ? $('dict-lang').value.trim() : '';
+  if (!term) { dictionaryDisplayMessage('dict-lookup-result', false, 'term required'); return; }
+  try {
+    var jobs = [
+      dictionaryView('exists', [term]),
+      dictionaryView('definition_of', [term]),
+      dictionaryView('example_of', [term]),
+      dictionaryView('category_of', [term]),
+      dictionaryView('pronunciation_of', [term]),
+      dictionaryView('revision_of', [term])
+    ];
+    if (full) {
+      jobs.push(dictionaryView('synonym_of', [term]));
+      jobs.push(dictionaryView('antonym_of', [term]));
+      jobs.push(dictionaryView('translation_of', [term, lang || 'en']));
+      jobs.push(dictionaryView('owner_address', []));
+      jobs.push(dictionaryView('total_terms', []));
+    }
+    var res = await Promise.all(jobs);
+    var exists = res[0] && res[0].result ? 'yes' : 'no';
+    var def = res[1] && res[1].result != null ? res[1].result : '';
+    var ex = res[2] && res[2].result != null ? res[2].result : '';
+    var cat = res[3] && res[3].result != null ? res[3].result : '';
+    var pron = res[4] && res[4].result != null ? res[4].result : '';
+    var rev = res[5] && res[5].result != null ? res[5].result : '';
+    var syn = full && res[6] && res[6].result != null ? res[6].result : '';
+    var ant = full && res[7] && res[7].result != null ? res[7].result : '';
+    var trans = full && res[8] && res[8].result != null ? res[8].result : '';
+    var owner = full && res[9] && res[9].result != null ? res[9].result : '';
+    var total = full && res[10] && res[10].result != null ? res[10].result : '';
+    var h = '<table class="detail-table">';
+    h += dictionaryValueRow('term', term, true);
+    h += dictionaryValueRow('exists', exists);
+    h += dictionaryValueRow('revision', rev);
+    h += dictionaryValueRow('definition', def);
+    h += dictionaryValueRow('example', ex);
+    h += dictionaryValueRow('category', cat);
+    h += dictionaryValueRow('pronunciation', pron);
+    if (full) {
+      h += dictionaryValueRow('synonym', syn);
+      h += dictionaryValueRow('antonym', ant);
+      h += dictionaryValueRow('translation [' + (lang || 'en') + ']', trans);
+      h += dictionaryValueRow('owner', owner, true);
+      h += dictionaryValueRow('total terms', total);
+    }
+    h += '</table>';
+    $('dict-lookup-result').innerHTML = h;
+    consoleLog('log', 'dictionary lookup ' + term + ' (' + (full ? 'full' : 'core') + ')');
+  } catch (e) {
+    dictionaryDisplayMessage('dict-lookup-result', false, e.message);
+  }
+}
+
+async function dictionaryLoadCore() {
+  return dictionaryLookup(false);
+}
+
+async function dictionarySetEntry() {
+  clearResult('dict-write-result');
+  var term = $('dict-term') ? $('dict-term').value.trim() : '';
+  var def = $('dict-definition') ? $('dict-definition').value.trim() : '';
+  var ex = $('dict-example') ? $('dict-example').value.trim() : '';
+  var cat = $('dict-category') ? $('dict-category').value.trim() : '';
+  var pron = $('dict-pronunciation') ? $('dict-pronunciation').value.trim() : '';
+  if (!term) { dictionaryDisplayMessage('dict-write-result', false, 'term required'); return; }
+  if (!def) { dictionaryDisplayMessage('dict-write-result', false, 'definition required'); return; }
+  if (!dictionaryValidateCallFee('dict-write-result')) return;
+  try {
+    var res = await dictionaryWrite('set_entry', [term, def, ex, cat, pron], '0', 'dict-call-fee');
+    var hash = res.tx_hash || '';
+    dictionaryDisplayMessage('dict-write-result', true, 'entry saved', 'tx: ' + txLink(hash));
+    await refreshDictionaryStats();
+    loadDashboard();
+    consoleLog('event', 'dictionary set_entry ' + term);
+  } catch (e) {
+    dictionaryDisplayMessage('dict-write-result', false, e.message);
+  }
+}
+
+async function dictionarySetDefinition() {
+  return dictionarySetField('set_definition', ['dict-term', 'dict-definition'], 2);
+}
+
+async function dictionarySetExample() {
+  return dictionarySetField('set_example', ['dict-term', 'dict-example'], 2);
+}
+
+async function dictionarySetCategory() {
+  return dictionarySetField('set_category', ['dict-term', 'dict-category'], 2);
+}
+
+async function dictionarySetPronunciation() {
+  return dictionarySetField('set_pronunciation', ['dict-term', 'dict-pronunciation'], 2);
+}
+
+async function dictionarySetSynonym() {
+  return dictionarySetField('set_synonym', ['dict-term', 'dict-synonym'], 2);
+}
+
+async function dictionarySetAntonym() {
+  return dictionarySetField('set_antonym', ['dict-term', 'dict-antonym'], 2);
+}
+
+async function dictionarySetTranslation() {
+  clearResult('dict-write-result');
+  var term = $('dict-term') ? $('dict-term').value.trim() : '';
+  var lang = $('dict-lang') ? $('dict-lang').value.trim() : '';
+  var text = $('dict-translation') ? $('dict-translation').value.trim() : '';
+  if (!term) { dictionaryDisplayMessage('dict-write-result', false, 'term required'); return; }
+  if (!lang) { dictionaryDisplayMessage('dict-write-result', false, 'language required'); return; }
+  if (!dictionaryValidateCallFee('dict-write-result')) return;
+  try {
+    var res = await dictionaryWrite('set_translation', [term, lang, text], '0', 'dict-call-fee');
+    dictionaryDisplayMessage('dict-write-result', true, 'translation updated', 'tx: ' + txLink(res.tx_hash || ''));
+    await refreshDictionaryStats();
+    loadDashboard();
+  } catch (e) {
+    dictionaryDisplayMessage('dict-write-result', false, e.message);
+  }
+}
+
+async function dictionaryClearTranslation() {
+  clearResult('dict-write-result');
+  var term = $('dict-term') ? $('dict-term').value.trim() : '';
+  var lang = $('dict-lang') ? $('dict-lang').value.trim() : '';
+  if (!term) { dictionaryDisplayMessage('dict-write-result', false, 'term required'); return; }
+  if (!lang) { dictionaryDisplayMessage('dict-write-result', false, 'language required'); return; }
+  if (!dictionaryValidateCallFee('dict-write-result')) return;
+  try {
+    var res = await dictionaryWrite('clear_translation', [term, lang], '0', 'dict-call-fee');
+    dictionaryDisplayMessage('dict-write-result', true, 'translation cleared', 'tx: ' + txLink(res.tx_hash || ''));
+    await refreshDictionaryStats();
+    loadDashboard();
+  } catch (e) {
+    dictionaryDisplayMessage('dict-write-result', false, e.message);
+  }
+}
+
+async function dictionaryRemoveTerm() {
+  clearResult('dict-write-result');
+  var term = $('dict-term') ? $('dict-term').value.trim() : '';
+  if (!term) { dictionaryDisplayMessage('dict-write-result', false, 'term required'); return; }
+  if (!dictionaryValidateCallFee('dict-write-result')) return;
+  try {
+    var res = await dictionaryWrite('remove_term', [term], '0', 'dict-call-fee');
+    dictionaryDisplayMessage('dict-write-result', true, 'term removed', 'tx: ' + txLink(res.tx_hash || ''));
+    await refreshDictionaryStats();
+    loadDashboard();
+  } catch (e) {
+    dictionaryDisplayMessage('dict-write-result', false, e.message);
+  }
+}
+
+async function dictionarySetField(method, fields, paramsCount) {
+  clearResult('dict-write-result');
+  var term = $(fields[0]) ? $(fields[0]).value.trim() : '';
+  var val = $(fields[1]) ? $(fields[1]).value.trim() : '';
+  if (!term) { dictionaryDisplayMessage('dict-write-result', false, 'term required'); return; }
+  if (paramsCount >= 2 && method !== 'set_example' && method !== 'set_category' && method !== 'set_pronunciation' && method !== 'set_synonym' && method !== 'set_antonym' && !val) {
+    dictionaryDisplayMessage('dict-write-result', false, 'value required'); return;
+  }
+  if (!dictionaryValidateCallFee('dict-write-result')) return;
+  try {
+    var res = await dictionaryWrite(method, [term, val], '0', 'dict-call-fee');
+    dictionaryDisplayMessage('dict-write-result', true, method.replace(/^set_/, '').replace(/_/g, ' ') + ' saved', 'tx: ' + txLink(res.tx_hash || ''));
+    await refreshDictionaryStats();
+    loadDashboard();
+  } catch (e) {
+    dictionaryDisplayMessage('dict-write-result', false, e.message);
   }
 }
 

@@ -2,13 +2,13 @@ Unicode True
 SetCompressor /SOLID lzma
 SetCompressorDictSize 64
 
-!define APP_NAME "Octra Wallet Native"
+!define APP_NAME "Octra IDE"
 !define APP_VERSION "0.04.10-alpha"
 !define APP_PUBLISHER "Octra Labs"
 !define APP_EXE "octra_wallet_native.exe"
-!define APP_DIR "OctraWalletNative"
+!define APP_DIR "OctraIDE"
 !define DIST_DIR "..\..\dist-win64"
-!define OUT_FILE "..\..\octra_wallet_native_win64_setup.exe"
+!define OUT_FILE "..\..\octra_ide_win64_setup.exe"
 
 Name "${APP_NAME}"
 OutFile "${OUT_FILE}"

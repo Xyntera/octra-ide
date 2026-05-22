@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Octra Dictionary</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Octra dictionary</p>
+        <h1>Clean data presentation.</h1>
+        <p class="lede">
+          A pure frontend dictionary page for Octra vocabulary, designed to present terms, definitions,
+          examples, and metadata without wallet screens or backend forms.
+        </p>
+      </div>
+      <div class="hero-card">
+        <div class="hero-label">Focus</div>
+        <div class="hero-value">Read-only presentation</div>
+        <div class="hero-note">Local search and curated examples only</div>
+      </div>
+    </section>
+
+    <section class="toolbar">
+      <input id="search" type="text" placeholder="Search terms, categories, or examples">
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section class="metrics" id="metrics"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Featured terms</div>
+          <div class="panel-subtitle">Curated vocabulary for the Octra ecosystem</div>
+        </div>
+      </div>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Structured fields</div>
+          <div class="panel-subtitle">Definition schema shown as a readable reference, not an input form</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="schema">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Meaning</th>
+              <th>Example</th>
+            </tr>
+          </thead>
+          <tbody id="schema"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

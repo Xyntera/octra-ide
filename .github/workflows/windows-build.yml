@@ -1,13 +1,20 @@
-name: windows-release
+name: windows-build
 
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows-build.yml"
+      - "CMakeLists.txt"
+      - "native/**"
+      - "lib/**"
+      - "pvac/**"
+      - "crypto_utils.hpp"
+      - "rpc_client.hpp"
+      - "wallet.hpp"
+      - "static/templates/**"
 
 jobs:
   build:
@@ -66,55 +73,17 @@ jobs:
           @"
           Octra IDE for Windows
 
-          Install with octra_ide_win64_setup.exe or extract the zip.
-          The app runs from octra_wallet_native.exe inside the installed/extracted folder.
-          Mainnet and Devnet presets are available in Settings.
+          This is a CI build artifact. Run octra_wallet_native.exe inside the folder.
           "@ | Set-Content (Join-Path $bundle "README.txt") -Encoding ASCII
 
       - name: Package zip
         shell: pwsh
         run: Compress-Archive -Path dist-win64\* -DestinationPath octra_ide_win64.zip
 
-      - name: Build installer
-        shell: pwsh
-        run: |
-          $nsis = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
-          if (-not $nsis) {
-            choco install nsis -y
-            $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
-          }
-          & $nsis packaging\windows\installer.nsi
-
-      - name: Sign artifacts
-        if: ${{ secrets.WIN_SIGN_PFX_BASE64 != '' }}
-        shell: pwsh
-        run: |
-          $pfxPath = "$env:TEMP\octra-sign.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String("${{ secrets.WIN_SIGN_PFX_BASE64 }}"))
-          $pwd = ConvertTo-SecureString "${{ secrets.WIN_SIGN_PFX_PASSWORD }}" -AsPlainText -Force
-          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
-          $cert.Import($pfxPath, $pwd, "Exportable,PersistKeySet")
-          $thumb = $cert.Thumbprint
-          $certPath = "Cert:\CurrentUser\My\$thumb"
-          Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $pwd | Out-Null
-          $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
-          if (-not $signtool) { throw "signtool.exe not found. Install Windows SDK." }
-          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /sha1 $thumb build-win-msvc\octra_wallet_native.exe
-          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /sha1 $thumb octra_ide_win64_setup.exe
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-release
+          name: windows-build
           path: |
             build-win-msvc/octra_wallet_native.exe
             octra_ide_win64.zip
-            octra_ide_win64_setup.exe
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            octra_ide_win64.zip
-            octra_ide_win64_setup.exe

@@ -70,7 +70,8 @@ QHash<QString, QStringList> templateMap() {
         {"vault", {"main.aml"}},
         {"amm", {"main.aml"}},
         {"escrow", {"main.aml"}},
-        {"multisig", {"main.aml"}}
+        {"multisig", {"main.aml"}},
+        {"dictionary", {"main.aml"}}
     };
 }
 
@@ -436,6 +437,7 @@ OctraAppBridge::OctraAppBridge(QObject* parent) : QObject(parent) {
 bool OctraAppBridge::loaded() const { return loaded_; }
 QString OctraAppBridge::address() const { return address_; }
 QString OctraAppBridge::rpcUrl() const { return rpcUrl_; }
+QString OctraAppBridge::explorerUrl() const { return explorerUrl_; }
 QString OctraAppBridge::networkName() const { return networkName_; }
 
 QVariantMap OctraAppBridge::toVariant(const octra::native::CoreResult& result) {
@@ -460,16 +462,22 @@ void OctraAppBridge::syncState() {
         const auto wallet = state.data["wallet"];
         address_ = QString::fromStdString(wallet.value("addr", ""));
         rpcUrl_ = QString::fromStdString(wallet.value("rpc_url", ""));
+        explorerUrl_ = QString::fromStdString(wallet.value("explorer_url", ""));
         networkName_ = networkNameForRpc(rpcUrl_);
     } else {
         address_.clear();
         rpcUrl_.clear();
+        explorerUrl_.clear();
         networkName_ = "Locked";
     }
     emit stateChanged();
 }
 
 QVariantMap OctraAppBridge::walletStatus() { return toVariant(core_.wallet_status()); }
+
+QVariantMap OctraAppBridge::getHistory(int limit, int offset) {
+    return toVariant(core_.get_history(limit, offset));
+}
 
 QVariantMap OctraAppBridge::unlockWallet(const QString& pin, const QString& path) {
     const auto result = core_.unlock_wallet(pin.toStdString(), path.toStdString());
@@ -696,6 +704,42 @@ QVariantMap OctraAppBridge::compileProject(const QString& filesJson, const QStri
     const json files = parseJsonText(filesJson, json::array(), &parseError);
     if (!parseError.isEmpty()) return errorResult("Invalid files JSON: " + parseError);
     return toVariant(core_.compile_project(files, mainPath.toStdString()));
+}
+
+QVariantMap OctraAppBridge::deployTemplate(const QString& templateKey, const QString& paramsJson, const QString& fee) {
+    QString error;
+    QVariantList files = loadTemplateFiles(templateKey, &error);
+    if (!error.isEmpty()) return errorResult(error);
+    if (files.isEmpty()) return errorResult("Template is empty");
+
+    json compiled;
+    if (files.size() == 1) {
+        const QVariantMap file = files.first().toMap();
+        const auto compile = core_.compile_aml(file.value("content").toString().toStdString());
+        if (!compile.ok) return toVariant(compile);
+        compiled = compile.data;
+    } else {
+        json payload = json::array();
+        for (const QVariant& item : files) {
+            const QVariantMap file = item.toMap();
+            payload.push_back({
+                {"path", file.value("path").toString().toStdString()},
+                {"source", file.value("content").toString().toStdString()}
+            });
+        }
+        const auto compile = core_.compile_project(payload, "main.aml");
+        if (!compile.ok) return toVariant(compile);
+        compiled = compile.data;
+    }
+
+    const std::string bytecode = compiled.value("bytecode", "");
+    const json abi = compiled.contains("abi") ? compiled["abi"] : json::object();
+    return toVariant(core_.deploy_contract(
+        bytecode,
+        paramsJson.toStdString(),
+        fee.toStdString(),
+        templateKey.toStdString(),
+        abi));
 }
 
 QVariantMap OctraAppBridge::previewContractAddress(const QString& bytecode) {
